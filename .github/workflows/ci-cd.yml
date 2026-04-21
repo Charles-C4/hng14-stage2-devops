@@ -171,7 +171,7 @@ jobs:
 
       - name: Set lowercase image name
         run: |
-          echo "IMAGE_NAME_LOWER=${{ github.repository | lowercase }}" >> $GITHUB_ENV
+          echo "IMAGE_NAME_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Extract metadata
         id: meta
@@ -379,7 +379,7 @@ jobs:
 
       - name: Set lowercase image name
         run: |
-          echo "IMAGE_NAME_LOWER=${{ github.repository | lowercase }}" >> $GITHUB_ENV
+          echo "IMAGE_NAME_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Pull latest images
         run: |
