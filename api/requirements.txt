@@ -2,3 +2,7 @@ fastapi
 uvicorn
 redis
 requests
+pytest
+pytest-cov
+fakeredis
+httpx

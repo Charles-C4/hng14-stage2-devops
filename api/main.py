@@ -36,7 +36,7 @@ def create_job():
 def get_job(job_id: str):
     try:
         status = r.hget(f"job:{job_id}", "status")
-        if not status:
+        if status is None or status == "":
             return {"error": "not found"}, 404
         return {"job_id": job_id, "status": status}
     except Exception as e:
