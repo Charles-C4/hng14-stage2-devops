@@ -21,6 +21,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Stage 2: Production
 FROM python:3.11-slim
 
+# Install procps for pgrep
+RUN apt-get update && apt-get install -y --no-install-recommends procps && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
