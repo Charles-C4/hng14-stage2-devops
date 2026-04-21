@@ -30,13 +30,18 @@ jobs:
 
       - name: Install Python linting tools
         run: |
-          pip install flake8 hadolint
+          pip install flake8
 
       - name: Run flake8 on Python
         run: |
           flake8 api/ worker/ --max-line-length=120 --ignore=E501,W503 || true
           # Fail on critical issues only
           flake8 api/ worker/ --max-line-length=120 --ignore=E501,W503 --exit-zero || exit $?
+
+      - name: Install hadolint
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq hadolint
 
       - name: Run hadolint on Dockerfiles
         run: |
