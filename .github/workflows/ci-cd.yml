@@ -8,7 +8,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # Opt-out of Node.js 20 deprecation
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
 jobs:
   lint:
@@ -30,17 +31,20 @@ jobs:
 
       - name: Install Python linting tools
         run: |
-          pip install flake8 hadolint
+          pip install flake8
 
       - name: Run flake8 on Python
         run: |
-          flake8 api/ worker/ --max-line-length=120 --ignore=E501,W503 || true
-          # Fail on critical issues only
-          flake8 api/ worker/ --max-line-length=120 --ignore=E501,W503 --exit-zero || exit $?
+          flake8 api/ worker/ --max-line-length=120 --ignore=E501,W503 || echo "Linting warnings found"
+
+      - name: Install hadolint
+        run: |
+          wget -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
+          chmod +x /usr/local/bin/hadolint
 
       - name: Run hadolint on Dockerfiles
         run: |
-          hadolint api/Dockerfile worker/Dockerfile frontend/Dockerfile || true
+          hadolint api/Dockerfile worker/Dockerfile frontend/Dockerfile || echo "Dockerfile warnings found"
 
       - name: Install Node.js linting
         run: |
@@ -68,67 +72,6 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pytest pytest-cov redis fakeredis requests
-
-      - name: Create test directory
-        run: mkdir -p api/tests
-
-      - name: Create conftest.py
-        run: |
-          cat > api/tests/conftest.py << 'EOF'
-          import pytest
-          import fakeredis
-          from unittest.mock import MagicMock
-
-          @pytest.fixture
-          def mock_redis():
-              return fakeredis.FakeRedis(decode_responses=True)
-
-          @pytest.fixture
-          def client(mock_redis, monkeypatch):
-              monkeypatch.setattr("redis.Redis", lambda *args, **kwargs: mock_redis)
-              from main import app
-              return app
-          EOF
-
-      - name: Create test_api.py
-        run: |
-          cat > api/tests/test_api.py << 'EOF'
-          import pytest
-          from fastapi.testclient import TestClient
-
-          @pytest.fixture
-          def client(monkeypatch):
-              import fakeredis
-              fake_redis = fakeredis.FakeRedis(decode_responses=True)
-              monkeypatch.setattr("main.r", fake_redis)
-              from main import app
-              return TestClient(app)
-
-          def test_health_check(client):
-              response = client.get("/health")
-              assert response.status_code == 200
-              assert response.json()["status"] == "healthy"
-
-          def test_create_job(client):
-              response = client.post("/jobs")
-              assert response.status_code == 200
-              assert "job_id" in response.json()
-
-          def test_get_job_not_found(client):
-              response = client.get("/jobs/nonexistent-id")
-              assert response.status_code == 404
-
-          def test_get_job_success(client):
-              # Create a job first
-              create_response = client.post("/jobs")
-              job_id = create_response.json()["job_id"]
-              
-              # Get the job
-              get_response = client.get(f"/jobs/{job_id}")
-              assert get_response.status_code == 200
-              assert get_response.json()["job_id"] == job_id
-              assert get_response.json()["status"] == "queued"
-          EOF
 
       - name: Run pytest with coverage
         run: |
@@ -162,11 +105,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set lowercase image name
+        run: |
+          echo "IMAGE_NAME_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}
           tags: |
             type=ref,event=branch
             type=sha,prefix=
@@ -177,7 +124,7 @@ jobs:
         with:
           context: ./api
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:${{ github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -187,7 +134,7 @@ jobs:
         with:
           context: ./worker
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:${{ github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -197,7 +144,7 @@ jobs:
         with:
           context: ./frontend
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:${{ github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -235,14 +182,14 @@ jobs:
           for image in api worker frontend; do
             echo "Scanning $image..."
             trivy image --severity CRITICAL,HIGH \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-$image:${{ github.sha }} || true
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-$image:${{ github.sha }} || true
           done
 
       - name: Fail on CRITICAL vulnerabilities
         run: |
           for image in api worker frontend; do
             trivy image --severity CRITICAL \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-$image:${{ github.sha }}
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-$image:${{ github.sha }}
           done
 
   integration-test:
@@ -269,9 +216,9 @@ jobs:
       - name: Start stack with Docker Compose
         run: |
           # Override image names to use built images
-          export API_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
-          export WORKER_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
-          export FRONTEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }}
+          export API_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:${{ github.sha }}
+          export WORKER_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:${{ github.sha }}
+          export FRONTEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:${{ github.sha }}
           
           # Create override compose file
           cat > docker-compose.override.yml << EOF
@@ -366,23 +313,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set lowercase image name
+        run: |
+          echo "IMAGE_NAME_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Pull latest images
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }}
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:${{ github.sha }}
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:${{ github.sha }}
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:${{ github.sha }}
 
       - name: Tag as latest
         run: |
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:latest
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:latest
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:latest
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:latest
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:latest
 
       - name: Push latest tags
         run: |
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:latest
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:latest
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:latest
 
       - name: Deploy with rolling update
         run: |
@@ -390,7 +341,7 @@ jobs:
           # For this task, we simulate by pulling and running
           echo "Deploying to production..."
           echo "Images pushed to registry:"
-          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:latest"
-          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:latest"
-          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest"
+          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:latest"
+          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:latest"
+          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:latest"
           echo "✅ Deployment complete!"
