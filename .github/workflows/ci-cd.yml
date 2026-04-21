@@ -9,6 +9,8 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # Opt-out of Node.js 24 forced upgrade
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
 jobs:
   lint:
@@ -34,9 +36,8 @@ jobs:
 
       - name: Run flake8 on Python
         run: |
-          flake8 api/ worker/ --max-line-length=120 --ignore=E501,W503 || true
-          # Fail on critical issues only
-          flake8 api/ worker/ --max-line-length=120 --ignore=E501,W503 --exit-zero || exit $?
+          # Run flake8 but don't fail the build - just report issues
+          flake8 api/ worker/ --max-line-length=120 --ignore=E501,W503 || echo "Linting warnings found"
 
       - name: Install hadolint
         run: |
@@ -45,7 +46,8 @@ jobs:
 
       - name: Run hadolint on Dockerfiles
         run: |
-          hadolint api/Dockerfile worker/Dockerfile frontend/Dockerfile || true
+          # Run hadolint but don't fail the build
+          hadolint api/Dockerfile worker/Dockerfile frontend/Dockerfile || echo "Dockerfile warnings found"
 
       - name: Install Node.js linting
         run: |
