@@ -90,6 +90,16 @@ Documenting all bugs found and fixes applied to make the application production-
 
 ---
 
+## 5. Security: Exposed .env File (CRITICAL)
+
+### Issue: Secrets Committed to Git
+- **File:** `api/.env`
+- **Problem:** `.env` file with `REDIS_PASSWORD=supersecretpassword123` was committed to git history
+- **Impact:** SECURITY BREACH - credentials exposed in version control
+- **Fix:** Remove the file from git and ensure .gitignore is respected
+
+---
+
 ## Summary
 
 | File | Issues Found | Issues Fixed |
@@ -98,4 +108,6 @@ Documenting all bugs found and fixes applied to make the application production-
 | worker/worker.py | 4 | 4 |
 | frontend/app.js | 2 | 2 |
 | frontend/views/index.html | 2 | 2 |
+| api/.env | 1 (SECURITY) | 1 |
+| **Total** | **13** | **13** |
 | **Total** | **12** | **12** |
