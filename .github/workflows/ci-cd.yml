@@ -105,7 +105,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Trivy FS Scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -118,7 +118,7 @@ jobs:
           sarif_file: fs.sarif
 
       - name: Scan Images
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           # Using the output from the build job to ensure naming consistency
           image-ref: ghcr.io/${{ needs.build.outputs.lower_repo }}-api:${{ github.sha }}
