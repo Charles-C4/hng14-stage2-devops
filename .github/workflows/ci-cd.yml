@@ -111,23 +111,19 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-      - uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: |
-            ${{ env.REGISTRY }}/${{ github.repository }}-api:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ github.repository }}-worker:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ github.repository }}-frontend:${{ github.sha }}
-          severity: CRITICAL,HIGH
-          exit-code: 0
-
-      - uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: |
-            ${{ env.REGISTRY }}/${{ github.repository }}-api:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ github.repository }}-worker:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ github.repository }}-frontend:${{ github.sha }}
-          severity: CRITICAL
-          exit-code: 1
+      - name: Scan images with Trivy
+        run: |
+          REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          
+          trivy image --severity CRITICAL,HIGH --exit-code 0 \
+            ${{ env.REGISTRY }}/$REPO_LOWER-api:${{ github.sha }} \
+            ${{ env.REGISTRY }}/$REPO_LOWER-worker:${{ github.sha }} \
+            ${{ env.REGISTRY }}/$REPO_LOWER-frontend:${{ github.sha }}
+          
+          trivy image --severity CRITICAL --exit-code 1 \
+            ${{ env.REGISTRY }}/$REPO_LOWER-api:${{ github.sha }} \
+            ${{ env.REGISTRY }}/$REPO_LOWER-worker:${{ github.sha }} \
+            ${{ env.REGISTRY }}/$REPO_LOWER-frontend:${{ github.sha }}
 
   integration-test:
     name: Integration Test
@@ -139,9 +135,10 @@ jobs:
       - run: pip install requests redis
 
       - run: |
-          export API_IMAGE=${{ env.REGISTRY }}/${{ github.repository }}-api:${{ github.sha }}
-          export WORKER_IMAGE=${{ env.REGISTRY }}/${{ github.repository }}-worker:${{ github.sha }}
-          export FRONTEND_IMAGE=${{ env.REGISTRY }}/${{ github.repository }}-frontend:${{ github.sha }}
+          REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          export API_IMAGE=${{ env.REGISTRY }}/$REPO_LOWER-api:${{ github.sha }}
+          export WORKER_IMAGE=${{ env.REGISTRY }}/$REPO_LOWER-worker:${{ github.sha }}
+          export FRONTEND_IMAGE=${{ env.REGISTRY }}/$REPO_LOWER-frontend:${{ github.sha }}
 
           cat > docker-compose.override.yml << EOF
           services:
