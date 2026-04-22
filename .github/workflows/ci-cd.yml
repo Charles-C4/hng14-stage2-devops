@@ -80,26 +80,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set lowercase image name
-        run: echo "IMAGE_NAME_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-
-      - uses: docker/build-push-action@v5
-        with:
-          context: ./api
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:${{ github.sha }}
-
-      - uses: docker/build-push-action@v5
-        with:
-          context: ./worker
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:${{ github.sha }}
-
-      - uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:${{ github.sha }}
+      - name: Build and push images
+        run: |
+          REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          
+          docker build -t ${{ env.REGISTRY }}/$REPO_LOWER-api:${{ github.sha }} ./api
+          docker push ${{ env.REGISTRY }}/$REPO_LOWER-api:${{ github.sha }}
+          
+          docker build -t ${{ env.REGISTRY }}/$REPO_LOWER-worker:${{ github.sha }} ./worker
+          docker push ${{ env.REGISTRY }}/$REPO_LOWER-worker:${{ github.sha }}
+          
+          docker build -t ${{ env.REGISTRY }}/$REPO_LOWER-frontend:${{ github.sha }} ./frontend
+          docker push ${{ env.REGISTRY }}/$REPO_LOWER-frontend:${{ github.sha }}
 
   security:
     name: Security Scan
@@ -108,7 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: aquasecurity/trivy-action@0.20.0
+      - uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scan-ref: .
@@ -119,21 +111,21 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-      - uses: aquasecurity/trivy-action@0.20.0
+      - uses: aquasecurity/trivy-action@master
         with:
           image-ref: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository }}-api:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository }}-worker:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository }}-frontend:${{ github.sha }}
           severity: CRITICAL,HIGH
           exit-code: 0
 
-      - uses: aquasecurity/trivy-action@0.20.0
+      - uses: aquasecurity/trivy-action@master
         with:
           image-ref: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository }}-api:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository }}-worker:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository }}-frontend:${{ github.sha }}
           severity: CRITICAL
           exit-code: 1
 
@@ -147,9 +139,9 @@ jobs:
       - run: pip install requests redis
 
       - run: |
-          export API_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:${{ github.sha }}
-          export WORKER_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:${{ github.sha }}
-          export FRONTEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:${{ github.sha }}
+          export API_IMAGE=${{ env.REGISTRY }}/${{ github.repository }}-api:${{ github.sha }}
+          export WORKER_IMAGE=${{ env.REGISTRY }}/${{ github.repository }}-worker:${{ github.sha }}
+          export FRONTEND_IMAGE=${{ env.REGISTRY }}/${{ github.repository }}-frontend:${{ github.sha }}
 
           cat > docker-compose.override.yml << EOF
           services:
@@ -200,14 +192,15 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:${{ github.sha }}
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:latest
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-api:latest
+          REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          docker pull ${{ env.REGISTRY }}/$REPO_LOWER-api:${{ github.sha }}
+          docker tag ${{ env.REGISTRY }}/$REPO_LOWER-api:${{ github.sha }} ${{ env.REGISTRY }}/$REPO_LOWER-api:latest
+          docker push ${{ env.REGISTRY }}/$REPO_LOWER-api:latest
 
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:${{ github.sha }}
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:latest
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-worker:latest
+          docker pull ${{ env.REGISTRY }}/$REPO_LOWER-worker:${{ github.sha }}
+          docker tag ${{ env.REGISTRY }}/$REPO_LOWER-worker:${{ github.sha }} ${{ env.REGISTRY }}/$REPO_LOWER-worker:latest
+          docker push ${{ env.REGISTRY }}/$REPO_LOWER-worker:latest
 
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:${{ github.sha }}
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:latest
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-frontend:latest
+          docker pull ${{ env.REGISTRY }}/$REPO_LOWER-frontend:${{ github.sha }}
+          docker tag ${{ env.REGISTRY }}/$REPO_LOWER-frontend:${{ github.sha }} ${{ env.REGISTRY }}/$REPO_LOWER-frontend:latest
+          docker push ${{ env.REGISTRY }}/$REPO_LOWER-frontend:latest
