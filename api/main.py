@@ -46,4 +46,3 @@ def get_job(job_id: str):
     except Exception as e:
         print(f"Error getting job: {e}")
         raise HTTPException(status_code=500, detail="failed to get job")
-    
