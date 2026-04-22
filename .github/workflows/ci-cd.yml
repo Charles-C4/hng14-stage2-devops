@@ -8,54 +8,71 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # This dynamically creates the lowercase repo name once for the whole run
-  IMAGE_BASE: ${{ github.repository_owner }}/${{ github.event.repository.name }}
 
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install flake8
-      - run: flake8 api/ worker/ --max-line-length=120 || true
+      
+      - name: Install Linting Tools
+        run: pip install flake8
+      
+      - name: Run Flake8
+        run: flake8 api/ worker/ --max-line-length=120 || true
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Frontend install & Lint
+      
+      - name: Frontend Install and ESLint
         working-directory: frontend
         run: |
           npm install
-          # ESLint v9+ uses flat config; this ensures it finds the project root
           npx eslint . --max-warnings 0 || true
 
-      - name: Install hadolint
+      - name: Install Hadolint
         run: |
           sudo wget -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
           sudo chmod +x /usr/local/bin/hadolint
-      - run: hadolint api/Dockerfile worker/Dockerfile frontend/Dockerfile || true
+      
+      - name: Run Hadolint
+        run: hadolint api/Dockerfile worker/Dockerfile frontend/Dockerfile || true
 
   test:
     name: Test
     runs-on: ubuntu-latest
     needs: lint
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install pytest pytest-cov httpx redis fakeredis
-      - name: Run Tests
+
+      - name: Install Test Dependencies
+        run: pip install pytest pytest-cov httpx redis fakeredis
+
+      - name: Run Pytest with Coverage
         run: |
           cd api
-          pytest -v || true
+          pytest --cov=./ --cov-report=xml || true
+
+      - name: Upload Coverage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage
+          path: api/coverage.xml
 
   build:
     name: Build
@@ -64,11 +81,15 @@ jobs:
     outputs:
       lower_repo: ${{ steps.vars.outputs.lower_repo }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
       
       - name: Generate Lowercase Repository Name
         id: vars
         run: echo "lower_repo=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -77,27 +98,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push Images
+      - name: Build and Push Images (SHA and Latest)
         run: |
           REPO=${{ steps.vars.outputs.lower_repo }}
           TAG=${{ github.sha }}
           
-          docker build -t ghcr.io/$REPO-api:$TAG ./api
-          docker build -t ghcr.io/$REPO-worker:$TAG ./worker
-          docker build -t ghcr.io/$REPO-frontend:$TAG ./frontend
-          
+          # API
+          docker build -t ghcr.io/$REPO-api:$TAG -t ghcr.io/$REPO-api:latest ./api
           docker push ghcr.io/$REPO-api:$TAG
+          docker push ghcr.io/$REPO-api:latest
+          
+          # Worker
+          docker build -t ghcr.io/$REPO-worker:$TAG -t ghcr.io/$REPO-worker:latest ./worker
           docker push ghcr.io/$REPO-worker:$TAG
+          docker push ghcr.io/$REPO-worker:latest
+          
+          # Frontend
+          docker build -t ghcr.io/$REPO-frontend:$TAG -t ghcr.io/$REPO-frontend:latest ./frontend
           docker push ghcr.io/$REPO-frontend:$TAG
+          docker push ghcr.io/$REPO-frontend:latest
 
   security:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Login to GHCR (Required for Trivy)
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -110,21 +139,20 @@ jobs:
           scan-type: 'fs'
           scan-ref: '.'
           format: 'sarif'
-          output: 'fs.sarif'
+          output: 'trivy-results.sarif'
 
-      - name: Upload FS scan
-        uses: github/codeql-action/upload-sarif@v4
+      - name: Upload SARIF Artifact
+        uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: fs.sarif
+          sarif_file: 'trivy-results.sarif'
 
-      - name: Scan Images
+      - name: Scan API Image
         uses: aquasecurity/trivy-action@v0.35.0
         with:
-          # Using the output from the build job to ensure naming consistency
           image-ref: ghcr.io/${{ needs.build.outputs.lower_repo }}-api:${{ github.sha }}
           format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: 0
+          severity: 'CRITICAL'
+          exit-code: 1 # Fail on critical as per requirement
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
@@ -134,7 +162,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: security
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -143,7 +172,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run stack
+      - name: Run Stack
         run: |
           REPO=${{ needs.build.outputs.lower_repo }}
           TAG=${{ github.sha }}
@@ -153,10 +182,10 @@ jobs:
           export FRONTEND_IMAGE=ghcr.io/$REPO-frontend:$TAG
           
           docker compose up -d
-          # Health check loop instead of just sleeping
+          
           TIMEOUT=60
           while [ $TIMEOUT -gt 0 ]; do
-            if curl -s http://localhost:3000/health; then
+            if curl -s http://localhost:8000/health; then
               echo "API is healthy!"
               exit 0
             fi
@@ -167,6 +196,6 @@ jobs:
           echo "Health check timed out"
           exit 1
 
-      - name: Cleanup
+      - name: Teardown
         if: always()
         run: docker compose down -v
